@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Dino Runner - Ultra Real & Fast</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #05050f;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            color: #fff;
+        }
+        h1 {
+            font-size: 2.2rem;
+            color: #00f5ff;
+            text-shadow: 0 0 20px rgba(0, 245, 255, 0.8), 0 0 40px rgba(0, 245, 255, 0.4);
+            margin-bottom: 8px;
+            letter-spacing: 3px;
+        }
+        .game-container {
+            position: relative;
+            box-shadow: 0 0 40px rgba(255, 0, 128, 0.4);
+            border-radius: 16px;
+            overflow: hidden;
+            border: 2px solid #ff0080;
+        }
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #0a0618, #180d30 70%, #2b124c);
+        }
+        .instructions {
+            margin-top: 15px;
+            font-size: 0.95rem;
+            color: #b0b0d0;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+        }
+        span {
+            color: #00f5ff;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>CYBER DINO RUNNER</h1>
+    <div class="game-container">
+        <canvas id="dinoCanvas" width="800" height="400"></canvas>
+    </div>
+    <div class="instructions">
+        Usa <span>ESPACIO</span> o <span>ARRIBA</span> para Saltar &bull; <span>ABAJO</span> para Agacharte &bull; ¡Cada 300 pts la velocidad aumenta!
+    </div>
+
+    <script>
+        const canvas = document.getElementById("dinoCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let score = 0;
+        let highScore = 0;
+        let gameSpeed = 6.5;
+        let isPlaying = false;
+        let isGameOver = false;
+        let frameCount = 0;
+
+        // Dinosaurio mejorado con físicas precisas
+        const dino = {
+            x: 70,
+            y: 265,
+            width: 48,
+            height: 60,
+            vy: 0,
+            gravity: 0.95,
+            jumpForce: -15.5,
+            isJumping: false,
+            isDuck: false
+        };
+
+        let obstacles = [];
+        let particles = [];
+        let stars = [];
+        let buildings = [];
+
+        // Generar Estrellas de fondo multicapa
+        for (let i = 0; i < 70; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * (canvas.height - 150),
+                size: Math.random() * 2.5 + 0.5,
+                speed: Math.random() * 1.2 + 0.3
+            });
+        }
+
+        // Generar fondo de ciudad futurista en bucle de paralaje
+        for (let i = 0; i < 12; i++) {
+            buildings.push({
+                x: i * 85,
+                width: 70 + Math.random() * 40,
+                height: 100 + Math.random() * 120,
+                color: `rgba(25, 15, 50, ${0.4 + Math.random() * 0.3})`
+            });
+        }
+
+        class Obstacle {
+            constructor() {
+                // Tipos: 0: Cactus simple, 1: Cactus doble robusto, 2: Pterodáctilo volador con láser
+                this.type = Math.random() < 0.6 ? (Math.random() < 0.5 ? 0 : 1) : 2;
+                if (this.type === 2) {
+                    this.width = 52;
+                    this.height = 32;
+                    this.y = 180 + Math.random() * 60; // Altura variable para obligar a saltar o agacharse
+                } else if (this.type === 1) {
+                    this.width = 44;
+                    this.height = 64;
+                    this.y = 264;
+                } else {
+                    this.width = 30;
+                    this.height = 52;
+                    this.y = 276;
+                }
+                this.x = canvas.width;
+            }
+            update() {
+                this.x -= gameSpeed;
+            }
+            draw() {
+                if (this.type === 2) {
+                    // Pterodáctilo futurista con brillo
+                    ctx.shadowColor = "#00f5ff";
+                    ctx.shadowBlur = 12;
+                    ctx.fillStyle = "#00c4ff";
+                    ctx.fillRect(this.x, this.y + 10, this.width, 14);
+                    ctx.beginPath();
+                    ctx.arc(this.x + 38, this.y + 12, 9, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Alas dinámicas aleteando
+                    let wingsUp = Math.floor(frameCount / 6) % 2 === 0;
+                    ctx.fillStyle = "#00f5ff";
+                    ctx.beginPath();
+                    ctx.moveTo(this.x + 16, this.y + 10);
+                    ctx.lineTo(this.x + 28, wingsUp ? this.y - 12 : this.y + 32);
+                    ctx.lineTo(this.x + 38, this.y + 10);
+                    ctx.fill();
+                    ctx.shadowBlur = 0; // Reset sombra
+                } else {
+                    // Cactus de cristal energético con brillo naranja/rojo intenso
+                    ctx.shadowColor = "#ff5500";
+                    ctx.shadowBlur = 15;
+                    ctx.fillStyle = "#ff5500";
+                    ctx.fillRect(this.x, this.y, this.width, this.height);
+                    
+                    // Núcleo brillante interno
+                    ctx.fillStyle = "#ffcc00";
+                    ctx.fillRect(this.x + 5, this.y + 6, 4, this.height - 12);
+                    if (this.type === 1) {
+                        ctx.fillRect(this.x + 18, this.y + 10, 4, this.height - 20);
+                    }
+                    ctx.shadowBlur = 0;
+                }
+            }
+        }
+
+        function resetGame() {
+            score = 0;
+            gameSpeed = 6.5;
+            obstacles = [];
+            particles = [];
+            dino.y = 265;
+            dino.vy = 0;
+            dino.isJumping = false;
+            isGameOver = false;
+            isPlaying = true;
+            loop();
+        }
+
+        // Manejo de controles
+        window.addEventListener("keydown", (e) => {
+            if (e.code === "Space" || e.code === "ArrowUp") {
+                if (!isPlaying) {
+                    resetGame();
+                } else if (!dino.isJumping && !dino.isDuck) {
+                    dino.vy = dino.jumpForce;
+                    dino.isJumping = true;
+                }
+            }
+            if (e.code === "ArrowDown") {
+                if (isPlaying && !dino.isJumping) {
+                    dino.isDuck = true;
+                }
+            }
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (e.code === "ArrowDown") {
+                dino.isDuck = false;
+            }
+        });
+
+        function loop() {
+            if (!isPlaying) return;
+
+            frameCount++;
+            score++;
+
+            // Incremento progresivo de velocidad cada 300 puntos (haciéndolo cada vez más veloz y desafiante)
+            if (score % 300 === 0) {
+                gameSpeed += 0.8;
+            }
+
+            // Limpiar canvas con renderizado suave
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Dibujar Edificios en paralaje (Fondo lejano)
+            buildings.forEach(b => {
+                ctx.fillStyle = b.color;
+                ctx.fillRect(b.x, canvas.height - b.height - 70, b.width, b.height);
+                if (isPlaying && !isGameOver) {
+                    b.x -= gameSpeed * 0.25;
+                    if (b.x + b.width < 0) {
+                        b.x = canvas.width + Math.random() * 50;
+                        b.width = 70 + Math.random() * 40;
+                        b.height = 100 + Math.random() * 120;
+                    }
+                }
+            });
+
+            // 2. Dibujar Estrellas parpadeantes
+            ctx.fillStyle = "rgba(220, 220, 255, 0.85)";
+            stars.forEach(star => {
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+                if (isPlaying && !isGameOver) {
+                    star.x -= star.speed * (gameSpeed * 0.2);
+                    if (star.x < 0) star.x = canvas.width;
+                }
+            });
+
+            // 3. Suelo de Neón y Cuadrícula de Perspectiva 3D con sombra
+            ctx.shadowColor = "#00f5ff";
+            ctx.shadowBlur = 10;
+            ctx.strokeStyle = "#00f5ff";
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(0, 328);
+            ctx.lineTo(canvas.width, 328);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            // Líneas de cuadrícula en movimiento rápido
+            ctx.strokeStyle = "rgba(0, 245, 255, 0.25)";
+            let shift = (score * (gameSpeed * 1.2)) % 60;
+            for (let i = -60; i < canvas.width + 60; i += 60) {
+                ctx.beginPath();
+                ctx.moveTo(i - shift, 328);
+                ctx.lineTo(i - shift - 30, 380);
+                ctx.stroke();
+            }
+
+            // 4. Física del Dinosaurio
+            if (dino.isJumping) {
+                dino.vy += dino.gravity;
+                dino.y += dino.vy;
+                if (dino.y >= 265) {
+                    dino.y = 265;
+                    dino.isJumping = false;
+                    dino.vy = 0;
+                }
+            }
+
+            // Partículas de estela raras/neón bajo los pies al correr a alta velocidad
+            if (!dino.isJumping && frameCount % 3 === 0) {
+                particles.push({ x: dino.x + 10, y: 322, alpha: 1, size: Math.random() * 4 + 2 });
+            }
+
+            particles.forEach((p, index) => {
+                ctx.fillStyle = `rgba(255, 0, 150, ${p.alpha})`;
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+                p.x -= gameSpeed;
+                p.alpha -= 0.04;
+                if (p.alpha <= 0) particles.splice(index, 1);
+            });
+
+            // 5. Dibujar Dinosaurio Realista & Animado (Fucsia Neón con sombreado y piernas dinámicas)
+            let currentH = dino.isDuck ? 32 : dino.height;
+            let currentY = dino.isDuck ? dino.y + 28 : dino.y;
+
+            // Sombra bajo el dinosaurio
+            ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+            ctx.beginPath();
+            ctx.ellipse(dino.x + 22, 332, dino.width * 0.4, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Cuerpo principal
+            ctx.shadowColor = "#ff0080";
+            ctx.shadowBlur = 15;
+            ctx.fillStyle = "#ff0080";
+            ctx.fillRect(dino.x, currentY, dino.width, currentH);
+
+            // Cola
+            ctx.beginPath();
+            ctx.moveTo(dino.x, currentY + 18);
+            ctx.lineTo(dino.x - 14, currentY + 30);
+            ctx.lineTo(dino.x, currentY + 42);
+            ctx.fill();
+
+            // Cabeza y ojo brillante
+            ctx.fillRect(dino.x + dino.width - 14, currentY - 14, 24, 22);
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(dino.x + dino.width + 2, currentY - 8, 5, 5);
+
+            // Piernas animadas con alta fluidez
+            if (!dino.isJumping && !dino.isDuck) {
+                ctx.fillStyle = "#b0005a";
+                let step = Math.floor(frameCount / 4) % 2 === 0; // Más rápido conforme sube la velocidad
+                if (step) {
+                    ctx.fillRect(dino.x + 8, currentY + currentH, 7, 14);
+                    ctx.fillRect(dino.x + 28, currentY + currentH - 5, 7, 9);
+                } else {
+                    ctx.fillRect(dino.x + 8, currentY + currentH - 5, 7, 9);
+                    ctx.fillRect(dino.x + 28, currentY + currentH, 7, 14);
+                }
+            }
+
+            // 6. Generación y Gestión de Obstáculos
+            if (Math.random() < 0.022 + (gameSpeed * 0.0012)) {
+                obstacles.push(new Obstacle());
+            }
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                obs.update();
+                obs.draw();
+
+                // Colisiones con precisión milimétrica ajustada
+                let dinoBox = { x: dino.x + 6, y: currentY + 6, width: dino.width - 12, height: currentH - 12 };
+                let obsBox = { x: obs.x + 5, y: obs.y + 5, width: obs.width - 10, height: obs.height - 10 };
+
+                if (
+                    dinoBox.x < obsBox.x + obsBox.width &&
+                    dinoBox.x + dinoBox.width > obsBox.x &&
+                    dinoBox.y < obsBox.y + obsBox.height &&
+                    dinoBox.y + dinoBox.height > obsBox.y
+                ) {
+                    isGameOver = true;
+                    isPlaying = false;
+                    if (score > highScore) highScore = score;
+                }
+
+                if (obs.x + obs.width < 0) {
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // 7. HUD de Puntuación y Velocidad Actual
+            ctx.font = "bold 18px 'Courier New'";
+            ctx.fillStyle = "#ffffff";
+            ctx.textAlign = "right";
+            ctx.fillText(`HI: ${highScore}   SCORE: ${score}   SPEED: ${gameSpeed.toFixed(1)}x`, canvas.width - 25, 35);
+
+            if (!isGameOver) {
+                requestAnimationFrame(loop);
+            } else {
+                drawGameOver();
+            }
+        }
+
+        function drawStartScreen() {
+            ctx.fillStyle = "rgba(5, 5, 15, 0.9)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.textAlign = "center";
+            ctx.shadowColor = "#00f5ff";
+            ctx.shadowBlur = 20;
+            ctx.fillStyle = "#00f5ff";
+            ctx.font = "bold 32px 'Courier New'";
+            ctx.fillText("CYBER DINO RUNNER", canvas.width / 2, canvas.height / 2 - 25);
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "16px 'Courier New'";
+            ctx.fillText("Presiona ESPACIO o ARRIBA para comenzar", canvas.width / 2, canvas.height / 2 + 15);
+        }
+
+        function drawGameOver() {
+            ctx.fillStyle = "rgba(5, 5, 15, 0.9)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.textAlign = "center";
+            ctx.shadowColor = "#ff3355";
+            ctx.shadowBlur = 20;
+            ctx.fillStyle = "#ff3355";
+            ctx.font = "bold 36px 'Courier New'";
+            ctx.fillText("¡FIN DEL JUEGO!", canvas.width / 2, canvas.height / 2 - 25);
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "16px 'Courier New'";
+            ctx.fillText("Presiona ESPACIO para reiniciar", canvas.width / 2, canvas.height / 2 + 20);
+        }
+
+        drawStartScreen();
+    </script>
+</body>
+</html>
